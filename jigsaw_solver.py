@@ -359,9 +359,9 @@ class PuzzleAssembler:
             self.grid[row][col].current_position = None
             self.grid[row][col] = None
     
-    # starting strategies: random, center fixed, boundary fixed
+    # starting strategies: random, center fixed, boundary fixed, random_fixed
     # pick the next best local move each time
-    def greedy_assemble(self, pieces: List[PuzzlePiece], strategy='random') -> List[List[PuzzlePiece]]:
+    def greedy_assemble(self, pieces: List[PuzzlePiece], strategy='random', num_random_fixed=5) -> List[List[PuzzlePiece]]:
         
         # reset all pieces
         for piece in pieces:
@@ -387,6 +387,18 @@ class PuzzleAssembler:
                     self.place_piece(piece, r, c)
                     unplaced.remove(piece)
                     boundary_count += 1
+        
+        elif strategy == 'random_fixed':
+            # place a random selection of pieces at their correct positions
+            num_to_fix = min(num_random_fixed, len(pieces))
+            fixed_pieces = np.random.choice(pieces, num_to_fix, replace=False)
+            
+            for piece in fixed_pieces:
+                r, c = piece.true_position
+                self.place_piece(piece, r, c)
+                unplaced.remove(piece)
+            
+            print(f"  Fixed {num_to_fix} random pieces at correct positions")
         
         else:
             # start with a random piece in the center
@@ -486,8 +498,8 @@ class JigsawPuzzleSolver:
         
         return pieces
     
-    # solve the puzzle using multiple strategies and return all solution
-    def solve(self) -> dict:
+    # solve the puzzle using multiple strategies and return all solutions
+    def solve(self, random_fixed_counts=[5, 10, 15]) -> dict:
         start_time = time.time()
         
         # train knn model
@@ -495,17 +507,27 @@ class JigsawPuzzleSolver:
         
         # try different starting strategies
         strategies = ['random', 'center_fixed', 'boundary_fixed']
+        
+        # add random_fixed strategies with different counts
+        for count in random_fixed_counts:
+            strategies.append(f'random_fixed_{count}')
+        
         solutions = {}
         
         self.assembler = PuzzleAssembler(self.knn_model, self.n_rows, self.n_cols)
         
-        for strategy in strategies:
+        for strategy_name in strategies:
             # reset grid for new strategy
             self.assembler.reset_grid()
             
-            # assemble puzzle with this strategy
-            solution = self.assembler.greedy_assemble(self.pieces, strategy=strategy)
-            solutions[strategy] = solution
+            # parse strategy name and parameters
+            if strategy_name.startswith('random_fixed_'):
+                num_fixed = int(strategy_name.split('_')[-1])
+                solution = self.assembler.greedy_assemble(self.pieces, strategy='random_fixed', num_random_fixed=num_fixed)
+            else:
+                solution = self.assembler.greedy_assemble(self.pieces, strategy=strategy_name)
+            
+            solutions[strategy_name] = solution
         
         elapsed = time.time() - start_time
         
@@ -621,6 +643,9 @@ def main():
     # get all jpg images
     image_files = sorted(list(dataset_dir.glob('*.jpg')))
     
+    # configure random_fixed strategy counts to test
+    random_fixed_counts = [3, 6, 9]  # test with 3, 6, and 9 randomly fixed pieces
+    
     # process each image
     for idx, image_path in enumerate(image_files, 1):
         print(f"\n[{idx}/{len(image_files)}] Processing: {image_path.name}")
@@ -634,7 +659,7 @@ def main():
             pieces = solver.create_puzzle(str(image_path), shuffle=True)
             
             # solve puzzle with all strategies
-            solutions = solver.solve()
+            solutions = solver.solve(random_fixed_counts=random_fixed_counts)
             
             # evaluate and visualize each strategy
             best_strategy = None
@@ -659,7 +684,7 @@ def main():
                 solver.visualize(solution, save_path=str(result_path))
             
             # print summary
-            print(f"BEST STRATEGY: '{best_strategy}' with neighbor accuracy: {best_score:.2%}")
+            print(f"\nBEST STRATEGY: '{best_strategy}' with neighbor accuracy: {best_score:.2%}")
             
         except Exception as e:
             print(f"Error processing {image_path.name}: {e}")
