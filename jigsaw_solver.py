@@ -3,7 +3,6 @@ import cv2
 from sklearn.neighbors import NearestNeighbors
 from sklearn.decomposition import PCA
 from sklearn.cluster import KMeans
-import matplotlib.pyplot as plt
 from pathlib import Path
 import time
 import csv
@@ -603,26 +602,7 @@ class JigsawPuzzleSolver:
         
         return metrics
     
-    # visualise original and reconstructed images side by side
-    def visualize(self, solution: List[List[PuzzlePiece]], save_path: Optional[str] = None):
-        reconstructed = self.reconstruct_image(solution)
-        
-        fig, axes = plt.subplots(1, 2, figsize=(12, 6))
-        
-        axes[0].imshow(self.original_image)
-        axes[0].set_title('Original Image')
-        axes[0].axis('off')
-        
-        axes[1].imshow(reconstructed)
-        axes[1].set_title('Reconstructed Image')
-        axes[1].axis('off')
-        
-        plt.tight_layout()
-        
-        if save_path:
-            plt.savefig(save_path, dpi=150, bbox_inches='tight')
-        
-        plt.close(fig)
+
 
 def main():
     
@@ -645,18 +625,22 @@ def main():
         return
     
     # configure random_fixed strategy counts to test
-    random_fixed_counts = [3, 6, 9]  # test with 3, 6, and 9 randomly fixed pieces
+    # test with 3, 6, and 9 randomly fixed pieces
+    random_fixed_counts = [3, 6, 9]  
     
-    # prepare CSV file for metrics (saved inside output dir)
-    csv_path = output_dir / 'experiment_metrics.csv'
-    csv_file = open(csv_path, 'w', newline='')
-    csv_writer = csv.writer(csv_file)
+    # prepare CSV file for detailed metrics (saved inside output dir)
+    detailed_csv_path = output_dir / 'detailed_metrics.csv'
+    detailed_csv_file = open(detailed_csv_path, 'w', newline='')
+    detailed_csv_writer = csv.writer(detailed_csv_file)
     
     # write header
-    csv_writer.writerow([
+    detailed_csv_writer.writerow([
         'image_name', 'strategy', 'direct_accuracy', 
-        'neighbor_accuracy', 'ssim', 'is_best'
+        'neighbor_accuracy', 'ssim'
     ])
+    
+    # dictionary to accumulate metrics for aggregation
+    strategy_metrics = {}
     
     # process each image
     for idx, image_path in enumerate(image_files, 1):
@@ -664,7 +648,7 @@ def main():
         print("-" * 60)
         
         # create and solve puzzle
-        solver = JigsawPuzzleSolver(n_rows=6, n_cols=6, n_neighbors=5)
+        solver = JigsawPuzzleSolver(n_rows=8, n_cols=8, n_neighbors=5)
         
         try:
             # create puzzle
@@ -674,11 +658,6 @@ def main():
             solutions = solver.solve(random_fixed_counts=random_fixed_counts)
             
             # evaluate each strategy
-            best_strategy = None
-            best_score = -1
-            best_solution = None
-            all_results = []
-            
             for strategy_name, solution in solutions.items():
                 print(f"\nEVALUATION FOR '{strategy_name}' STRATEGY")
                 metrics = solver.evaluate(solution)
@@ -686,37 +665,25 @@ def main():
                 print(f"Neighbor Accuracy: {metrics['neighbor_accuracy']:.2%}")
                 print(f"SSIM: {metrics['ssim']:.4f}")
                 
-                # store results
-                all_results.append({
-                    'strategy': strategy_name,
-                    'metrics': metrics,
-                    'solution': solution
-                })
-                
-                # track best strategy by neighbor accuracy
-                if metrics['neighbor_accuracy'] > best_score:
-                    best_score = metrics['neighbor_accuracy']
-                    best_strategy = strategy_name
-                    best_solution = solution
-            
-            # write all results to CSV
-            for result in all_results:
-                is_best = 1 if result['strategy'] == best_strategy else 0
-                csv_writer.writerow([
+                # write to detailed CSV
+                detailed_csv_writer.writerow([
                     image_path.name,
-                    result['strategy'],
-                    f"{result['metrics']['direct_accuracy']:.4f}",
-                    f"{result['metrics']['neighbor_accuracy']:.4f}",
-                    f"{result['metrics']['ssim']:.4f}",
-                    is_best
+                    strategy_name,
+                    f"{metrics['direct_accuracy']:.4f}",
+                    f"{metrics['neighbor_accuracy']:.4f}",
+                    f"{metrics['ssim']:.4f}"
                 ])
-            
-            # save only the best strategy visualization
-            if best_solution is not None:
-                result_path = output_dir / f'best_{image_path.stem}.png'
-                solver.visualize(best_solution, save_path=str(result_path))
-                print(f"\nBEST STRATEGY: '{best_strategy}' with neighbor accuracy: {best_score:.2%}")
-                print(f"Saved visualization: {result_path.name}")
+                
+                # accumulate metrics for aggregation
+                if strategy_name not in strategy_metrics:
+                    strategy_metrics[strategy_name] = {
+                        'direct_accuracy': [],
+                        'neighbor_accuracy': [],
+                        'ssim': []
+                    }
+                strategy_metrics[strategy_name]['direct_accuracy'].append(metrics['direct_accuracy'])
+                strategy_metrics[strategy_name]['neighbor_accuracy'].append(metrics['neighbor_accuracy'])
+                strategy_metrics[strategy_name]['ssim'].append(metrics['ssim'])
             
         except Exception as e:
             print(f"Error processing {image_path.name}: {e}")
@@ -724,10 +691,36 @@ def main():
             traceback.print_exc()
             continue
     
-    # close CSV file
-    csv_file.close()
+    # close detailed CSV file
+    detailed_csv_file.close()
     print(f"\n{'='*60}")
-    print(f"All metrics saved to: {csv_path}")
+    print(f"Detailed metrics saved to: {detailed_csv_path}")
+    
+    # create aggregated metrics CSV
+    aggregated_csv_path = output_dir / 'aggregated_metrics.csv'
+    with open(aggregated_csv_path, 'w', newline='') as agg_csv_file:
+        agg_csv_writer = csv.writer(agg_csv_file)
+        
+        # write header
+        agg_csv_writer.writerow([
+            'strategy', 'avg_direct_accuracy', 'avg_neighbor_accuracy', 
+            'avg_ssim', 'std_direct_accuracy', 'std_neighbor_accuracy', 'std_ssim'
+        ])
+        
+        # write aggregated metrics for each strategy
+        for strategy_name in sorted(strategy_metrics.keys()):
+            metrics = strategy_metrics[strategy_name]
+            agg_csv_writer.writerow([
+                strategy_name,
+                f"{np.mean(metrics['direct_accuracy']):.4f}",
+                f"{np.mean(metrics['neighbor_accuracy']):.4f}",
+                f"{np.mean(metrics['ssim']):.4f}",
+                f"{np.std(metrics['direct_accuracy']):.4f}",
+                f"{np.std(metrics['neighbor_accuracy']):.4f}",
+                f"{np.std(metrics['ssim']):.4f}"
+            ])
+    
+    print(f"Aggregated metrics saved to: {aggregated_csv_path}")
     print(f"{'='*60}")
         
 if __name__ == "__main__":

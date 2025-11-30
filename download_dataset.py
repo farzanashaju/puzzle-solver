@@ -1,6 +1,3 @@
-"""
-Download a small dataset of sample images for jigsaw puzzle solving
-"""
 import urllib.request
 import os
 from pathlib import Path
@@ -9,7 +6,7 @@ def download_sample_images():
     dataset_dir = Path('dataset')
     dataset_dir.mkdir(exist_ok=True)
     
-    num_images = 5
+    num_images = 100
 
     images = [
         (f'https://picsum.photos/512/512?random={i}', f'image_{i}.jpg')
