@@ -5,8 +5,8 @@ from sklearn.decomposition import PCA
 from sklearn.cluster import KMeans
 import matplotlib.pyplot as plt
 from pathlib import Path
-import pickle
 import time
+import csv
 from dataclasses import dataclass
 from typing import List, Tuple, Optional
 from skimage.metrics import structural_similarity as ssim
@@ -301,7 +301,6 @@ class PuzzleAssembler:
     
     # reset the grid and all piece placements
     def reset_grid(self):
-        """Reset the grid and all piece placements"""
         self.grid = [[None for _ in range(self.n_cols)] for _ in range(self.n_rows)]
     
     # check if placing a piece at a position is valid
@@ -397,9 +396,7 @@ class PuzzleAssembler:
                 r, c = piece.true_position
                 self.place_piece(piece, r, c)
                 unplaced.remove(piece)
-            
-            print(f"  Fixed {num_to_fix} random pieces at correct positions")
-        
+                    
         else:
             # start with a random piece in the center
             start_piece = unplaced[0]
@@ -634,17 +631,32 @@ def main():
     warnings.filterwarnings('ignore', category=RuntimeWarning)
     
     # create output directory
-    output_dir = Path('puzzle_output')
+    output_dir = Path('output')
     output_dir.mkdir(exist_ok=True)
-    
+
     # find images in dataset directory
     dataset_dir = Path('dataset')
     
-    # get all jpg images
-    image_files = sorted(list(dataset_dir.glob('*.jpg')))
+    # get all jpg and png images
+    image_files = sorted(list(dataset_dir.glob('*.jpg')) + list(dataset_dir.glob('*.png')))
+    
+    if not image_files:
+        print(f"No images found in {dataset_dir}. Please run download_dataset.py first.")
+        return
     
     # configure random_fixed strategy counts to test
     random_fixed_counts = [3, 6, 9]  # test with 3, 6, and 9 randomly fixed pieces
+    
+    # prepare CSV file for metrics (saved inside output dir)
+    csv_path = output_dir / 'experiment_metrics.csv'
+    csv_file = open(csv_path, 'w', newline='')
+    csv_writer = csv.writer(csv_file)
+    
+    # write header
+    csv_writer.writerow([
+        'image_name', 'strategy', 'direct_accuracy', 
+        'neighbor_accuracy', 'ssim', 'is_best'
+    ])
     
     # process each image
     for idx, image_path in enumerate(image_files, 1):
@@ -661,36 +673,62 @@ def main():
             # solve puzzle with all strategies
             solutions = solver.solve(random_fixed_counts=random_fixed_counts)
             
-            # evaluate and visualize each strategy
+            # evaluate each strategy
             best_strategy = None
             best_score = -1
-            all_metrics = {}
+            best_solution = None
+            all_results = []
             
             for strategy_name, solution in solutions.items():
                 print(f"\nEVALUATION FOR '{strategy_name}' STRATEGY")
                 metrics = solver.evaluate(solution)
-                all_metrics[strategy_name] = metrics
                 print(f"Direct Accuracy: {metrics['direct_accuracy']:.2%}")
                 print(f"Neighbor Accuracy: {metrics['neighbor_accuracy']:.2%}")
                 print(f"SSIM: {metrics['ssim']:.4f}")
+                
+                # store results
+                all_results.append({
+                    'strategy': strategy_name,
+                    'metrics': metrics,
+                    'solution': solution
+                })
                 
                 # track best strategy by neighbor accuracy
                 if metrics['neighbor_accuracy'] > best_score:
                     best_score = metrics['neighbor_accuracy']
                     best_strategy = strategy_name
-                
-                # save visualization for each strategy
-                result_path = output_dir / f'result_{image_path.stem}_{strategy_name}.png'
-                solver.visualize(solution, save_path=str(result_path))
+                    best_solution = solution
             
-            # print summary
-            print(f"\nBEST STRATEGY: '{best_strategy}' with neighbor accuracy: {best_score:.2%}")
+            # write all results to CSV
+            for result in all_results:
+                is_best = 1 if result['strategy'] == best_strategy else 0
+                csv_writer.writerow([
+                    image_path.name,
+                    result['strategy'],
+                    f"{result['metrics']['direct_accuracy']:.4f}",
+                    f"{result['metrics']['neighbor_accuracy']:.4f}",
+                    f"{result['metrics']['ssim']:.4f}",
+                    is_best
+                ])
+            
+            # save only the best strategy visualization
+            if best_solution is not None:
+                result_path = output_dir / f'best_{image_path.stem}.png'
+                solver.visualize(best_solution, save_path=str(result_path))
+                print(f"\nBEST STRATEGY: '{best_strategy}' with neighbor accuracy: {best_score:.2%}")
+                print(f"Saved visualization: {result_path.name}")
             
         except Exception as e:
             print(f"Error processing {image_path.name}: {e}")
             import traceback
             traceback.print_exc()
             continue
+    
+    # close CSV file
+    csv_file.close()
+    print(f"\n{'='*60}")
+    print(f"All metrics saved to: {csv_path}")
+    print(f"{'='*60}")
         
 if __name__ == "__main__":
     main()
