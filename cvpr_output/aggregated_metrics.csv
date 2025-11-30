@@ -1,0 +1,2 @@
+strategy,avg_direct_accuracy,avg_neighbor_accuracy,avg_ssim,std_direct_accuracy,std_neighbor_accuracy,std_ssim
+PaikinTal_Constraint,0.8066,0.9258,0.8962,0.3701,0.1419,0.2253
