@@ -32,5 +32,6 @@ threadpoolctl==3.6.0
 tifffile==2025.10.16
 torch==2.9.1
 torchvision==0.24.1
+tqdm==4.67.1
 typing_extensions==4.15.0
 urllib3==2.5.0
